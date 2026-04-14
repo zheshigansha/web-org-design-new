@@ -21,6 +21,7 @@ export async function GET(
           category_id: categoryId,
           heat_metric: 'composite',
           report_frequency: 'manual',
+          report_time: '09:00',
           updated_at: new Date().toISOString()
         }
       });
@@ -40,7 +41,7 @@ export async function PUT(
   try {
     const { categoryId } = await params;
     const db = getDb();
-    const { heatMetric, reportFrequency } = await request.json();
+    const { heatMetric, reportFrequency, reportTime } = await request.json();
 
     const validHeatMetrics = ['likes', 'reads', 'interactions', 'composite'];
     const validFrequencies = ['daily', 'manual'];
@@ -55,16 +56,18 @@ export async function PUT(
 
     // 更新或插入设置
     db.prepare(`
-      INSERT INTO category_settings (category_id, heat_metric, report_frequency, updated_at)
-      VALUES (?, ?, ?, datetime('now'))
+      INSERT INTO category_settings (category_id, heat_metric, report_frequency, report_time, updated_at)
+      VALUES (?, ?, ?, ?, datetime('now'))
       ON CONFLICT(category_id) DO UPDATE SET
         heat_metric = COALESCE(excluded.heat_metric, heat_metric),
         report_frequency = COALESCE(excluded.report_frequency, report_frequency),
+        report_time = COALESCE(excluded.report_time, report_time),
         updated_at = datetime('now')
     `).run(
       categoryId,
       heatMetric || 'composite',
-      reportFrequency || 'manual'
+      reportFrequency || 'manual',
+      reportTime || '09:00'
     );
 
     const settings = db.prepare(`

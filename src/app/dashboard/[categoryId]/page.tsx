@@ -39,6 +39,8 @@ export default function CategoryPage() {
   const [selectedContent, setSelectedContent] = useState<Content | null>(null);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [searchLimit, setSearchLimit] = useState<string>('20');
+  const [collectKeyword, setCollectKeyword] = useState('');
+  const [collectLimit, setCollectLimit] = useState<number | null>(null);
 
   const category = categories.find((c) => c.id === categoryId);
 
@@ -105,7 +107,12 @@ export default function CategoryPage() {
       const res = await fetch('/api/collect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ categoryId, platform: activePlatform }),
+        body: JSON.stringify({
+          categoryId,
+          platform: activePlatform,
+          keyword: collectKeyword || null,
+          limit: collectLimit,
+        }),
       });
       const data = await res.json();
       if (data.success) {
@@ -134,14 +141,34 @@ export default function CategoryPage() {
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-xl font-bold text-gray-900">{category?.name || '加载中...'}</h1>
           {activePlatform && (
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={handleCollect}
-              disabled={collecting}
-            >
-              {collecting ? '采集中...' : '采集内容'}
-            </Button>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                placeholder="自定义关键词"
+                value={collectKeyword}
+                onChange={(e) => setCollectKeyword(e.target.value)}
+                className="w-36 px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <select
+                value={collectLimit ?? ''}
+                onChange={(e) => setCollectLimit(e.target.value ? Number(e.target.value) : null)}
+                className="px-2 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">不限</option>
+                <option value="10">10条</option>
+                <option value="20">20条</option>
+                <option value="50">50条</option>
+                <option value="100">100条</option>
+              </select>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={handleCollect}
+                disabled={collecting}
+              >
+                {collecting ? '采集中...' : '采集内容'}
+              </Button>
+            </div>
           )}
         </div>
         <TabNav tabs={tabs} activeTab={activeTab} onTabChange={(id) => setActiveTab(id as any)} />
@@ -263,6 +290,17 @@ export default function CategoryPage() {
                 value={settings?.report_frequency || 'manual'}
                 onChange={(freq) => updateSettings({ report_frequency: freq })}
               />
+              {(settings?.report_frequency || 'manual') === 'daily' && (
+                <div className="mt-4 flex items-center gap-3">
+                  <label className="text-sm text-gray-600">每日报告时间</label>
+                  <input
+                    type="time"
+                    value={settings?.report_time || '09:00'}
+                    onChange={(e) => updateSettings({ report_time: e.target.value })}
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              )}
             </div>
 
             <div className="bg-white rounded-xl border border-gray-200 p-6">

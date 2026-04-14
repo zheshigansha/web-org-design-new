@@ -31,17 +31,50 @@ async function fetchWithRetry(url: string, options: RequestInit, retries = 3, de
   throw new Error('API请求多次超时');
 }
 
+// 从原始 Buffer 解码文本（尝试 GBK -> UTF8）
+function decodeText(buffer: Buffer, fallbackEncoding = 'gbk'): string {
+  // 先尝试 UTF-8
+  try {
+    return buffer.toString('utf-8');
+  } catch {
+    // 忽略
+  }
+
+  // 再尝试 GBK
+  try {
+    const validUtf8 = buffer.toString('utf-8');
+    // 检测是否包含乱码特征
+    if (/[�\x00-\x08\x0B\x0C\x0E-\x1F]/.test(validUtf8)) {
+      // 可能不是 UTF-8，尝试 GBK
+      return buffer.toString('latin1');
+    }
+    return validUtf8;
+  } catch {
+    return buffer.toString('latin1');
+  }
+}
+
+// 清洗文本中的乱码字符
+function cleanText(text: string | null | undefined): string {
+  if (!text) return '';
+  return text
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '') // 移除控制字符
+    .replace(/�/g, '') // 移除 Unicode 替换字符
+    .trim();
+}
+
 // 公众号爆文API调用
 async function fetchWechatContent(
   categoryId: string,
-  keywords: string[]
+  keywords: string[],
+  limit?: number | null
 ): Promise<Content[]> {
   const contents: Content[] = [];
   const now = new Date();
 
   if (!API_CONFIG.token) {
     console.warn('WECHAT_API_TOKEN 未配置，使用模拟数据');
-    return generateMockContent(categoryId, 'wechat', keywords);
+    return generateMockContent(categoryId, 'wechat', keywords, limit);
   }
 
   for (const keyword of keywords) {
@@ -61,7 +94,14 @@ async function fetchWechatContent(
           },
           body: JSON.stringify({
             kw: keyword,
+            sort_type: 1,    // 1:按阅读数排序 2:按时间排序
+            mode: 1,         // 1:搜索标题 2:搜索正文 3:搜索标题和正文
+            period: 7,       // 1-7天内数据
             page: 1,
+            any_kw: '',
+            ex_kw: '',
+            verifycode: '',
+            type: 1,
           }),
         },
         3, // 最多重试3次
@@ -73,30 +113,53 @@ async function fetchWechatContent(
         continue;
       }
 
-      const data = await response.json();
+      // 获取原始字节以正确处理编码
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      const text = decodeText(buffer);
+
+      let data;
+
+      try {
+        data = JSON.parse(text);
+      } catch (parseError) {
+        console.error(`JSON解析失败，原始响应: ${text.substring(0, 500)}`);
+        continue;
+      }
 
       // 解析API返回的数据（根据实际返回格式调整）
-      const items = data?.data?.list || data?.list || [];
+      const items = data?.data?.data || [];
 
       for (const item of items) {
-        const likes = item.likes || item.like_num || 0;
-        const reads = item.reads || item.read_num || item.views || 0;
+        // 使用正确的字段映射
+        const likes = item.praise || 0;  // 点赞数
+        const reads = item.read || 0;     // 阅读数
         const interactions = likes + Math.floor(reads * 0.1); // 估算互动
 
         // 综合热度评分
         const heatScore = Math.log10(likes + 1) * 2 + Math.log10(reads + 1) * 1 + Math.log10(interactions + 1) * 3;
 
+        // 清洗文本
+        const title = cleanText(item.title) || '无标题';
+        const summary = cleanText(item.content?.substring(0, 200)) || '';  // 使用正文前200字作为摘要
+        const authorName = cleanText(item.wx_name) || '未知公众号';
+        const coverImage = item.avatar || null;
+        const contentUrl = item.url || '';
+
+        // 用 url 或 ghid 做去重ID
+        const platformContentId = item.ghid || (contentUrl ? contentUrl.replace(/[^a-zA-Z0-9]/g, '').slice(0, 64) : `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
+
         contents.push({
           id: uuidv4(),
           category_id: categoryId,
           platform: 'wechat',
-          platform_content_id: item.id || item.content_id || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          title: item.title || '无标题',
-          summary: item.digest || item.summary || item.desc || '',
-          cover_image: item.cover || item.thumb_url || null,
-          author_name: item.author || item.account_name || '未知作者',
-          author_avatar: item.author_icon || item.avatar || null,
-          content_url: item.url || item.content_url || '',
+          platform_content_id: platformContentId,
+          title,
+          summary,
+          cover_image: coverImage,
+          author_name: authorName,
+          author_avatar: null,
+          content_url: contentUrl,
           likes,
           reads,
           interactions,
@@ -122,15 +185,17 @@ async function fetchWechatContent(
 function generateMockContent(
   categoryId: string,
   platform: 'xiaohongshu' | 'wechat',
-  keywords: string[]
+  keywords: string[],
+  limit?: number | null
 ): Content[] {
   const contents: Content[] = [];
   const now = new Date();
 
   for (const keyword of keywords) {
-    const count = Math.floor(Math.random() * 3) + 1;
+    // 如果有 limit 参数，根据它来决定生成数量
+    const baseCount = limit ? Math.min(limit, 10) : Math.floor(Math.random() * 3) + 1;
 
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < baseCount; i++) {
       const likes = Math.floor(Math.random() * 5000);
       const reads = Math.floor(Math.random() * 20000);
       const interactions = Math.floor(Math.random() * 1000);
@@ -149,7 +214,7 @@ function generateMockContent(
         author_name: platform === 'xiaohongshu'
           ? ['小红书用户', '健康达人', '更年期姐姐'][Math.floor(Math.random() * 3)]
           : ['健康公众号', '医学科普', '养生专家'][Math.floor(Math.random() * 3)],
-        author_avatar: `https://i.pravatar.cc/100?u=${Date.now() + i}`,
+        author_avatar: null,
         content_url: `https://${platform}.com/post/${Date.now() + i}`,
         likes,
         reads,
@@ -210,7 +275,19 @@ async function fetchWechatAccountPosts(
           break;
         }
 
-        const data = await response.json();
+        // 获取原始字节以正确处理编码
+        const arrayBuffer = await response.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        const text = decodeText(buffer);
+
+        let data;
+
+        try {
+          data = JSON.parse(text);
+        } catch (parseError) {
+          console.error(`账号采集 JSON解析失败，原始响应: ${text.substring(0, 500)}`);
+          break;
+        }
 
         // 状态码非0表示业务错误
         if (data.code !== 0) {
@@ -219,12 +296,16 @@ async function fetchWechatAccountPosts(
         }
 
         const articles = data.data || [];
-        const authorName = data.mp_nickname || account.account_name || '未知公众号';
+        const authorName = cleanText(data.mp_nickname) || account.account_name || '未知公众号';
         const authorAvatar = data.head_img || null;
 
         for (const item of articles) {
           // 跳过已删除的文章
           if (item.is_deleted === '1' || item.msg_status === 7) continue;
+
+          // 清洗文本
+          const title = cleanText(item.title) || '无标题';
+          const summary = cleanText(item.digest) || '';
 
           // 用文章URL做去重ID
           const contentUrl = item.url || '';
@@ -235,8 +316,8 @@ async function fetchWechatAccountPosts(
             category_id: categoryId,
             platform: 'wechat',
             platform_content_id: contentId,
-            title: item.title || '无标题',
-            summary: item.digest || '',
+            title,
+            summary,
             cover_image: item.cover_url || item.pic_cdn_url_16_9 || null,
             author_name: authorName,
             author_avatar: authorAvatar,
@@ -274,15 +355,16 @@ async function fetchWechatAccountPosts(
 // 小红书采集（暂时保留模拟）
 function collectXiaohongshu(
   categoryId: string,
-  keywords: string[]
+  keywords: string[],
+  limit?: number | null
 ): Content[] {
-  return generateMockContent(categoryId, 'xiaohongshu', keywords);
+  return generateMockContent(categoryId, 'xiaohongshu', keywords, limit);
 }
 
 export async function POST(request: Request) {
   try {
     const db = getDb();
-    const { categoryId, platform } = await request.json();
+    const { categoryId, platform, keyword: customKeyword, limit: customLimit } = await request.json();
 
     if (!categoryId || !platform) {
       return NextResponse.json({ error: '缺少必填字段' }, { status: 400 });
@@ -292,10 +374,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '无效的平台' }, { status: 400 });
     }
 
-    // 获取关键词
-    const keywords = db.prepare(`
-      SELECT keyword FROM keywords WHERE category_id = ? AND type = 'include'
-    `).all(categoryId) as { keyword: string }[];
+    // 获取关键词：如果传入了自定义关键词，优先使用
+    let keywordList: string[] = [];
+    if (customKeyword && customKeyword.trim()) {
+      keywordList = [customKeyword.trim()];
+    } else {
+      // 否则从数据库读取保存的关键词
+      const keywords = db.prepare(`
+        SELECT keyword FROM keywords WHERE category_id = ? AND type = 'include'
+      `).all(categoryId) as { keyword: string }[];
+      keywordList = keywords.map(k => k.keyword);
+    }
 
     // 获取监控账号
     const accounts = db.prepare(`
@@ -304,7 +393,7 @@ export async function POST(request: Request) {
     `).all(categoryId, platform) as { account_id: string; account_name: string }[];
 
     // 如果没有关键词和账号，返回空
-    if (keywords.length === 0 && accounts.length === 0) {
+    if (keywordList.length === 0 && accounts.length === 0) {
       return NextResponse.json({
         success: true,
         collected: 0,
@@ -314,18 +403,17 @@ export async function POST(request: Request) {
 
     // 根据平台采集
     let collectedContents: Content[] = [];
-    const keywordList = keywords.map(k => k.keyword);
 
     if (platform === 'wechat') {
       // 公众号：关键词搜索 + 指定账号监控
-      const keywordResults = await fetchWechatContent(categoryId, keywordList);
+      const keywordResults = await fetchWechatContent(categoryId, keywordList, customLimit);
       const accountResults = accounts.length > 0
         ? await fetchWechatAccountPosts(categoryId, accounts)
         : [];
       collectedContents = [...keywordResults, ...accountResults];
     } else {
       // 小红书：暂时使用模拟数据
-      collectedContents = collectXiaohongshu(categoryId, keywordList);
+      collectedContents = collectXiaohongshu(categoryId, keywordList, customLimit);
     }
 
     // 去重：按 platform_content_id 去重（关键词和账号可能抓到同一篇）
@@ -335,6 +423,11 @@ export async function POST(request: Request) {
       seen.add(c.platform_content_id);
       return true;
     });
+
+    // 应用数量限制
+    if (customLimit && customLimit > 0 && collectedContents.length > customLimit) {
+      collectedContents = collectedContents.slice(0, customLimit);
+    }
 
     // 保存到数据库
     const insertStmt = db.prepare(`
@@ -360,7 +453,9 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       collected: collectedContents.length,
-      platform
+      platform,
+      usedKeyword: customKeyword || null,
+      usedLimit: customLimit || null,
     });
   } catch (error) {
     console.error('Failed to collect content:', error);
