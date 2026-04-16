@@ -11,11 +11,6 @@ interface ContentCardProps {
 }
 
 export function ContentCard({ content, onClick }: ContentCardProps) {
-  const platformColors = {
-    xiaohongshu: 'bg-red-100 text-red-700',
-    wechat: 'bg-green-100 text-green-700',
-  };
-
   const platformLabels = {
     xiaohongshu: '小红书',
     wechat: '公众号',
@@ -29,6 +24,7 @@ export function ContentCard({ content, onClick }: ContentCardProps) {
             src={content.cover_image}
             alt={content.title || '封面图'}
             fill
+            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
             className="object-cover"
           />
         </div>
@@ -55,14 +51,21 @@ export function ContentCard({ content, onClick }: ContentCardProps) {
 
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            {content.author_avatar && (
+            {content.author_avatar ? (
               <Image
                 src={content.author_avatar}
                 alt={content.author_name || '作者'}
                 width={24}
                 height={24}
                 className="rounded-full"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = 'none';
+                }}
               />
+            ) : (
+              <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-xs text-gray-400">
+                {content.author_name?.charAt(0) || '?'}
+              </div>
             )}
             <span className="text-xs text-gray-500">
               {content.author_name || '未知作者'}

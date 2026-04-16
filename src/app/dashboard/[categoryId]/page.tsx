@@ -41,6 +41,8 @@ export default function CategoryPage() {
   const [searchLimit, setSearchLimit] = useState<string>('20');
   const [collectKeyword, setCollectKeyword] = useState('');
   const [collectLimit, setCollectLimit] = useState<number | null>(null);
+  const [collectLimitCustom, setCollectLimitCustom] = useState<string>('');
+  const [useCustomCollectLimit, setUseCustomCollectLimit] = useState(false);
 
   const category = categories.find((c) => c.id === categoryId);
 
@@ -150,8 +152,16 @@ export default function CategoryPage() {
                 className="w-36 px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <select
-                value={collectLimit ?? ''}
-                onChange={(e) => setCollectLimit(e.target.value ? Number(e.target.value) : null)}
+                value={useCustomCollectLimit ? 'custom' : (collectLimit ?? '')}
+                onChange={(e) => {
+                  if (e.target.value === 'custom') {
+                    setUseCustomCollectLimit(true);
+                  } else {
+                    setUseCustomCollectLimit(false);
+                    setCollectLimit(e.target.value ? Number(e.target.value) : null);
+                    setCollectLimitCustom('');
+                  }
+                }}
                 className="px-2 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="">不限</option>
@@ -159,7 +169,24 @@ export default function CategoryPage() {
                 <option value="20">20条</option>
                 <option value="50">50条</option>
                 <option value="100">100条</option>
+                <option value="custom">自定义</option>
               </select>
+              {useCustomCollectLimit && (
+                <input
+                  type="number"
+                  min="1"
+                  max="500"
+                  value={collectLimitCustom}
+                  onChange={(e) => {
+                    setCollectLimitCustom(e.target.value);
+                    if (e.target.value) {
+                      setCollectLimit(Number(e.target.value));
+                    }
+                  }}
+                  placeholder="输入数量"
+                  className="w-24 px-2 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              )}
               <Button
                 size="sm"
                 variant="secondary"

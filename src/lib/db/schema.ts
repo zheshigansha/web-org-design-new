@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS category_settings (
   category_id TEXT PRIMARY KEY,
   heat_metric TEXT DEFAULT 'composite',
   report_frequency TEXT DEFAULT 'manual',
+  report_time TEXT DEFAULT '09:00',
   updated_at TEXT DEFAULT (datetime('now')),
   FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
 );
@@ -187,6 +188,7 @@ export type CategorySettings = {
   category_id: string;
   heat_metric: 'likes' | 'reads' | 'interactions' | 'composite';
   report_frequency: 'daily' | 'manual';
+  report_time: string;
   updated_at: string;
 };
 

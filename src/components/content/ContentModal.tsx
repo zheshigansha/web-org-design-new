@@ -65,6 +65,7 @@ export function ContentModal({ content, onClose }: ContentModalProps) {
                 src={content.cover_image}
                 alt={content.title || '封面图'}
                 fill
+                sizes="(max-width: 768px) 100vw, 600px"
                 className="object-cover"
               />
             </div>
@@ -77,14 +78,21 @@ export function ContentModal({ content, onClose }: ContentModalProps) {
 
           {/* Author */}
           <div className="flex items-center gap-3 mb-4 pb-4 border-b border-gray-100">
-            {content.author_avatar && (
+            {content.author_avatar ? (
               <Image
                 src={content.author_avatar}
                 alt={content.author_name || '作者'}
                 width={40}
                 height={40}
                 className="rounded-full"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = 'none';
+                }}
               />
+            ) : (
+              <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-400">
+                {content.author_name?.charAt(0) || '?'}
+              </div>
             )}
             <div>
               <p className="text-sm font-medium text-gray-900">
